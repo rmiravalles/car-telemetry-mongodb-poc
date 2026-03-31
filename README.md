@@ -47,7 +47,7 @@ Authentication between Azure resources is identity-based using managed identitie
 From repository root:
 
 ```bash
-az group create -n rg-car-telemetry-poc -l eastus
+az group create -n rg-car-telemetry-poc -l westeurope
 az deployment group create \
 	-g rg-car-telemetry-poc \
 	-f infra/main.bicep \
