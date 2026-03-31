@@ -21,7 +21,22 @@ Authentication between Azure resources is identity-based using managed identitie
 - `src/function_app/local.settings.sample.json`: local settings template.
 - `scripts/simulate_vehicle_data.py`: telemetry simulator.
 - `scripts/bootstrap_mongodb_indexes.py`: creates MongoDB indexes for telemetry queries.
+- `docs/architecture.excalidraw.elements.json`: Excalidraw elements for architecture diagram.
 - `requirements.txt`: Python dependencies.
+
+## Architecture Diagram (Excalidraw)
+
+![Car Telemetry PoC Architecture](docs/architecture.png)
+
+The PoC architecture diagram source is available in:
+
+- `docs/architecture.excalidraw.elements.json`
+
+How to use it:
+
+1. Open Excalidraw (web or VS Code extension).
+2. Paste the JSON array from `docs/architecture.excalidraw.elements.json` into the Excalidraw MCP `create_view` input.
+3. Export as PNG/SVG if you want to embed a rendered image in documentation.
 
 ## Azure Resources Provisioned by Bicep
 
