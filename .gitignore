@@ -1,3 +1,6 @@
+# Local Azure Functions settings (contains secrets)
+local.settings.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

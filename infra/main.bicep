@@ -175,7 +175,7 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
 }
 
 resource eventHubReceiverRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(eventHubNamespace.id, functionApp.identity.principalId, 'eventhub-receiver')
+  name: guid(eventHubNamespace.id, functionApp.id, 'eventhub-receiver')
   scope: eventHubNamespace
   properties: {
     principalId: functionApp.identity.principalId
@@ -185,7 +185,7 @@ resource eventHubReceiverRole 'Microsoft.Authorization/roleAssignments@2022-04-0
 }
 
 resource storageBlobContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storage.id, functionApp.identity.principalId, 'storage-blob-contributor')
+  name: guid(storage.id, functionApp.id, 'storage-blob-contributor')
   scope: storage
   properties: {
     principalId: functionApp.identity.principalId

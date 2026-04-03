@@ -5,10 +5,10 @@
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     "EVENT_HUB_NAME": "vehicle-telemetry",
     "EVENT_HUB_CONSUMER_GROUP": "$Default",
-    "EventHubConnection__fullyQualifiedNamespace": "<your-namespace>.servicebus.windows.net",
+    "EventHubConnection__fullyQualifiedNamespace": "<your-prefix>ehns.servicebus.windows.net",
     "DATA_LAKE_ACCOUNT_URL": "https://<your-storage-account>.dfs.core.windows.net",
     "DATA_LAKE_FILE_SYSTEM": "raw-telemetry",
-    "MONGODB_URI": "mongodb+srv://<atlas-cluster>/?authMechanism=MONGODB-OIDC",
+    "MONGODB_URI": "mongodb+srv://<your-atlas-cluster>.mongodb.net/",
     "MONGODB_OIDC_SCOPE": "https://management.azure.com/.default",
     "MONGODB_DATABASE": "telemetry",
     "MONGODB_COLLECTION": "vehicle_state"

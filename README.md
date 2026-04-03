@@ -7,7 +7,7 @@ This repository contains a proof of concept for real-time vehicle telemetry proc
 1. A telemetry simulator publishes vehicle sensor events to Azure Event Hubs.
 2. An Azure Function (Event Hub trigger) consumes events.
 3. The function writes each raw event to Azure Data Lake Gen2.
-4. The function writes the latest telemetry document to MongoDB Atlas for low-latency queries.
+4. The function writes the telemetry events to documents in MongoDB Atlas for low-latency queries.
 
 Authentication between Azure resources is identity-based using managed identities.
 
@@ -19,24 +19,14 @@ Authentication between Azure resources is identity-based using managed identitie
 - `src/function_app/function_app.py`: Event Hub triggered function.
 - `src/function_app/host.json`: Function host configuration.
 - `src/function_app/local.settings.sample.json`: local settings template.
+- `src/function_app/requirements.txt`: function dependencies.
 - `scripts/simulate_vehicle_data.py`: telemetry simulator.
 - `scripts/bootstrap_mongodb_indexes.py`: creates MongoDB indexes for telemetry queries.
-- `docs/architecture.excalidraw.elements.json`: Excalidraw elements for architecture diagram.
 - `requirements.txt`: Python dependencies.
 
 ## Architecture Diagram (Excalidraw)
 
 ![Car Telemetry PoC Architecture](docs/architecture.png)
-
-The PoC architecture diagram source is available in:
-
-- `docs/architecture.excalidraw.elements.json`
-
-How to use it:
-
-1. Open Excalidraw (web or VS Code extension).
-2. Paste the JSON array from `docs/architecture.excalidraw.elements.json` into the Excalidraw MCP `create_view` input.
-3. Export as PNG/SVG if you want to embed a rendered image in documentation.
 
 ## Azure Resources Provisioned by Bicep
 
@@ -54,7 +44,7 @@ How to use it:
 - Azure CLI logged in (`az login`)
 - Python 3.11+
 - Azure Functions Core Tools (for local function runs)
-- Existing MongoDB Atlas cluster
+- Existing MongoDB Atlas cluster (**M10 or higher** — OIDC/Workload Identity Federation is not supported on M0, M2, or M5 shared tiers)
 - Atlas workload identity federation configured for Azure managed identity / Entra identity
 
 ## 1) Deploy Azure Infrastructure
@@ -82,9 +72,28 @@ az deployment group show \
 
 Configure Atlas federated authentication to trust the Azure identity that runs the Function App.
 
+### 2a) Allow outbound IPs in Atlas Network Access
+
+The Function App connects to Atlas over the public internet. Add its outbound IPs to the Atlas IP Access List.
+
+Get the outbound IPs:
+
+```bash
+az functionapp show \
+	-g rg-car-telemetry-poc \
+	-n <your-prefix>-func \
+	--query "possibleOutboundIpAddresses" -o tsv | tr ',' '\n'
+```
+
+In the Atlas UI → **Security** → **Network Access** → **Add IP Address**, add each IP returned above.
+
+> **Note:** Consumption plan outbound IPs can change. For a stable IP, use VNet integration with a NAT gateway (see hardening steps below).
+
+### 2b) Configure Workload Identity Federation
+
 Set these Function App settings after Atlas is configured:
 
-- `MONGODB_URI`: example `mongodb+srv://<atlas-cluster>/?authMechanism=MONGODB-OIDC`
+- `MONGODB_URI`: example `mongodb+srv://<atlas-cluster>.<region>.mongodb.net/`
 - `MONGODB_DATABASE`: example `telemetry`
 - `MONGODB_COLLECTION`: example `vehicle_state`
 - `MONGODB_OIDC_SCOPE`: token scope configured for your Atlas federation (default in code is `https://management.azure.com/.default`)
@@ -94,9 +103,9 @@ Set app settings:
 ```bash
 az functionapp config appsettings set \
 	-g rg-car-telemetry-poc \
-	-n <function-app-name> \
+	-n <your-prefix>-func \
 	--settings \
-	MONGODB_URI="mongodb+srv://<atlas-cluster>/?authMechanism=MONGODB-OIDC" \
+	MONGODB_URI="mongodb+srv://<your-atlas-cluster>.mongodb.net/" \
 	MONGODB_DATABASE="telemetry" \
 	MONGODB_COLLECTION="vehicle_state" \
 	MONGODB_OIDC_SCOPE="https://management.azure.com/.default"
@@ -142,7 +151,7 @@ Run simulator:
 
 ```bash
 python3 scripts/simulate_vehicle_data.py \
-	--namespace <eventhub-namespace>.servicebus.windows.net \
+	--namespace <your-prefix>ehns.servicebus.windows.net \
 	--event-hub vehicle-telemetry \
 	--vehicle-count 10 \
 	--interval 1 \

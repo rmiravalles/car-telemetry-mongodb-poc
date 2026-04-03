@@ -6,7 +6,7 @@
       "value": "westeurope"
     },
     "namePrefix": {
-      "value": "cartelem"
+      "value": "myapp"
     },
     "eventHubName": {
       "value": "vehicle-telemetry"

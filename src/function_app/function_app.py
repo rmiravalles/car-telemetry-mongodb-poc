@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, List
 
 import azure.functions as func
 from azure.identity import DefaultAzureCredential
@@ -107,7 +107,7 @@ def _upsert_to_mongodb(payload: dict[str, Any]) -> None:
     consumer_group="%EVENT_HUB_CONSUMER_GROUP%",
     cardinality="many",
 )
-def process_vehicle_telemetry(events: list[func.EventHubEvent]) -> None:
+def process_vehicle_telemetry(events: List[func.EventHubEvent]) -> None:
     processed = 0
     failed = 0
 
