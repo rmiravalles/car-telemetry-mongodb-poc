@@ -22,7 +22,6 @@ Authentication between Azure resources is identity-based using managed identitie
 - `src/function_app/requirements.txt`: function dependencies.
 - `scripts/simulate_vehicle_data.py`: telemetry simulator.
 - `scripts/bootstrap_mongodb_indexes.py`: creates MongoDB indexes for telemetry queries.
-- `requirements.txt`: Python dependencies.
 
 ## Architecture Diagram
 
@@ -93,7 +92,7 @@ In the Atlas UI → **Security** → **Network Access** → **Add IP Address**, 
 
 Set these Function App settings after Atlas is configured:
 
-- `MONGODB_URI`: example `mongodb+srv://<atlas-cluster>.<region>.mongodb.net/`
+- `MONGODB_URI`: example `mongodb+srv://<atlas-cluster>.mongodb.net/`
 - `MONGODB_DATABASE`: example `telemetry`
 - `MONGODB_COLLECTION`: example `vehicle_state`
 - `MONGODB_OIDC_SCOPE`: token scope configured for your Atlas federation (default in code is `https://management.azure.com/.default`)
