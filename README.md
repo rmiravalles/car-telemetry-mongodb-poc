@@ -24,9 +24,9 @@ Authentication between Azure resources is identity-based using managed identitie
 - `scripts/bootstrap_mongodb_indexes.py`: creates MongoDB indexes for telemetry queries.
 - `requirements.txt`: Python dependencies.
 
-## Architecture Diagram (Excalidraw)
+## Architecture Diagram
 
-![Car Telemetry PoC Architecture](docs/architecture.png)
+![Car Telemetry PoC Architecture](docs/mongodb-poc.png)
 
 ## Azure Resources Provisioned by Bicep
 
