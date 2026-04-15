@@ -12,6 +12,23 @@ This repository contains a proof of concept for real-time vehicle telemetry proc
 
 Authentication between Azure resources is identity-based using managed identities.
 
+## Stack Components
+
+- `scripts/simulate_vehicle_data.py`: generates sample vehicle telemetry and sends it to Azure Event Hubs. It acts as the event producer for the PoC.
+- Azure Event Hubs: ingestion buffer for telemetry events. It decouples event production from downstream processing so producers and consumers can scale independently.
+- Azure Function App: event-driven processor that subscribes to the Event Hub, validates and transforms incoming events, then fans the data out to storage systems.
+- Azure Data Lake Gen2: raw telemetry archive. It keeps the immutable event stream for replay, batch processing, historical analysis, and downstream analytics.
+- MongoDB Atlas: low-latency operational store for telemetry documents. It supports the application-facing queries that need current vehicle state, geospatial lookups, and indexed reads.
+- Azure Databricks: analytical compute layer. It mounts the ADLS Gen2 container and uses Spark for batch exploration, aggregations, model training, and fleet-wide historical analysis.
+- Application Insights and Log Analytics: observability layer for the Function App and related Azure runtime telemetry.
+- Microsoft Entra identities and RBAC: access-control layer. Managed identity is used by the Function App for Azure resources, and a service principal is used by Databricks for the ADLS mount.
+
+## How The Components Relate
+
+The simulator pushes telemetry into Event Hubs. The Azure Function consumes that stream once and writes two views of the same event: a raw JSON copy into ADLS Gen2 and a query-optimized document into MongoDB Atlas. MongoDB Atlas serves the online workload, where the question is usually about the latest or recent state of a single vehicle or a small set of vehicles.
+
+Databricks sits downstream of ADLS rather than inline with ingestion. It does not receive events directly from Event Hubs in this PoC. Instead, it mounts the raw telemetry zone in ADLS and runs Spark jobs over the archived data for analytics and ML workloads. Application Insights and Log Analytics observe the Azure-hosted parts of the pipeline, while Entra identities and RBAC bind the components together securely.
+
 ## Repository Structure
 
 - `.azure/deployment-plan.md`: implementation plan and scope.
