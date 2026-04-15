@@ -19,12 +19,37 @@ param eventHubPartitions int = 4
 @description('ADLS Gen2 file system for raw telemetry files')
 param dataLakeFileSystem string = 'raw-telemetry'
 
-var storageAccountName = toLower('${namePrefix}dls${uniqueString(resourceGroup().id)}')
+@description('Azure Databricks workspace name')
+param databricksWorkspaceName string = '${namePrefix}-dbw'
+
+@description('Azure Databricks SKU')
+@allowed([
+  'standard'
+  'premium'
+  'trial'
+])
+param databricksSku string = 'standard'
+
+@description('Object ID of an existing Microsoft Entra service principal used by Databricks to mount ADLS Gen2')
+param databricksServicePrincipalObjectId string
+
+@description('Application (client) ID of an existing Microsoft Entra service principal used by Databricks to mount ADLS Gen2')
+param databricksServicePrincipalClientId string
+
+@description('Tenant ID for the Microsoft Entra service principal used by Databricks to mount ADLS Gen2')
+param databricksServicePrincipalTenantId string = tenant().tenantId
+
+var trimmedStoragePrefix = take(toLower(namePrefix), 8)
+var storageAccountName = '${trimmedStoragePrefix}dls${uniqueString(resourceGroup().id)}'
 var eventHubNamespaceName = toLower('${namePrefix}ehns')
 var appServicePlanName = '${namePrefix}-func-plan'
 var functionAppName = '${namePrefix}-func'
 var appInsightsName = '${namePrefix}-appi'
 var logAnalyticsName = '${namePrefix}-log'
+var databricksManagedResourceGroupName = '${databricksWorkspaceName}-managed-rg'
+var databricksManagedResourceGroupId = '${subscription().id}/resourceGroups/${databricksManagedResourceGroupName}'
+var dataLakeDnsSuffix = 'dfs.${environment().suffixes.storage}'
+var dataLakeAbfsUri = 'abfss://${dataLakeFileSystem}@${storage.name}.${dataLakeDnsSuffix}/'
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: logAnalyticsName
@@ -73,6 +98,22 @@ resource fileSystem 'Microsoft.Storage/storageAccounts/blobServices/containers@2
   name: dataLakeFileSystem
   properties: {
     publicAccess: 'None'
+  }
+}
+
+resource databricksWorkspace 'Microsoft.Databricks/workspaces@2024-05-01' = {
+  name: databricksWorkspaceName
+  location: location
+  sku: {
+    name: databricksSku
+  }
+  properties: {
+    managedResourceGroupId: databricksManagedResourceGroupId
+    publicNetworkAccess: 'Enabled'
+    requiredNsgRules: 'AllRules'
+    defaultCatalog: {
+      initialType: 'HiveMetastore'
+    }
   }
 }
 
@@ -151,7 +192,7 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
         }
         {
           name: 'DATA_LAKE_ACCOUNT_URL'
-          value: 'https://${storage.name}.dfs.core.windows.net'
+          value: 'https://${storage.name}.${dataLakeDnsSuffix}'
         }
         {
           name: 'DATA_LAKE_FILE_SYSTEM'
@@ -194,9 +235,25 @@ resource storageBlobContributorRole 'Microsoft.Authorization/roleAssignments@202
   }
 }
 
+resource databricksStorageBlobContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storage.id, databricksServicePrincipalObjectId, 'databricks-storage-blob-contributor')
+  scope: storage
+  properties: {
+    principalId: databricksServicePrincipalObjectId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+    principalType: 'ServicePrincipal'
+  }
+}
+
 output functionAppName string = functionApp.name
 output eventHubNamespaceFqdn string = '${eventHubNamespace.name}.servicebus.windows.net'
 output eventHubNameOut string = eventHub.name
-output dataLakeAccountUrl string = 'https://${storage.name}.dfs.core.windows.net'
+output dataLakeAccountUrl string = 'https://${storage.name}.${dataLakeDnsSuffix}'
 output dataLakeFileSystemOut string = fileSystem.name
 output functionPrincipalId string = functionApp.identity.principalId
+output databricksWorkspaceNameOut string = databricksWorkspace.name
+output databricksWorkspaceUrl string = 'https://${databricksWorkspace.properties.workspaceUrl}'
+output databricksServicePrincipalClientIdOut string = databricksServicePrincipalClientId
+output databricksServicePrincipalTenantIdOut string = databricksServicePrincipalTenantId
+output dataLakeStorageAccountName string = storage.name
+output dataLakeAbfsUri string = dataLakeAbfsUri

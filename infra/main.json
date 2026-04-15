@@ -1,0 +1,387 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.41.2.15936",
+      "templateHash": "16630110027029344875"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for all resources"
+      }
+    },
+    "namePrefix": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 11,
+      "metadata": {
+        "description": "Prefix used to name resources"
+      }
+    },
+    "eventHubName": {
+      "type": "string",
+      "defaultValue": "vehicle-telemetry",
+      "metadata": {
+        "description": "Event Hub name for telemetry ingestion"
+      }
+    },
+    "eventHubPartitions": {
+      "type": "int",
+      "defaultValue": 4,
+      "minValue": 1,
+      "maxValue": 32,
+      "metadata": {
+        "description": "Number of partitions in Event Hub"
+      }
+    },
+    "dataLakeFileSystem": {
+      "type": "string",
+      "defaultValue": "raw-telemetry",
+      "metadata": {
+        "description": "ADLS Gen2 file system for raw telemetry files"
+      }
+    },
+    "databricksWorkspaceName": {
+      "type": "string",
+      "defaultValue": "[format('{0}-dbw', parameters('namePrefix'))]",
+      "metadata": {
+        "description": "Azure Databricks workspace name"
+      }
+    },
+    "databricksSku": {
+      "type": "string",
+      "defaultValue": "standard",
+      "allowedValues": [
+        "standard",
+        "premium",
+        "trial"
+      ],
+      "metadata": {
+        "description": "Azure Databricks SKU"
+      }
+    },
+    "databricksServicePrincipalObjectId": {
+      "type": "string",
+      "metadata": {
+        "description": "Object ID of an existing Microsoft Entra service principal used by Databricks to mount ADLS Gen2"
+      }
+    },
+    "databricksServicePrincipalClientId": {
+      "type": "string",
+      "metadata": {
+        "description": "Application (client) ID of an existing Microsoft Entra service principal used by Databricks to mount ADLS Gen2"
+      }
+    },
+    "databricksServicePrincipalTenantId": {
+      "type": "string",
+      "defaultValue": "[tenant().tenantId]",
+      "metadata": {
+        "description": "Tenant ID for the Microsoft Entra service principal used by Databricks to mount ADLS Gen2"
+      }
+    }
+  },
+  "variables": {
+    "trimmedStoragePrefix": "[take(toLower(parameters('namePrefix')), 8)]",
+    "storageAccountName": "[format('{0}dls{1}', variables('trimmedStoragePrefix'), uniqueString(resourceGroup().id))]",
+    "eventHubNamespaceName": "[toLower(format('{0}ehns', parameters('namePrefix')))]",
+    "appServicePlanName": "[format('{0}-func-plan', parameters('namePrefix'))]",
+    "functionAppName": "[format('{0}-func', parameters('namePrefix'))]",
+    "appInsightsName": "[format('{0}-appi', parameters('namePrefix'))]",
+    "logAnalyticsName": "[format('{0}-log', parameters('namePrefix'))]",
+    "databricksManagedResourceGroupName": "[format('{0}-managed-rg', parameters('databricksWorkspaceName'))]",
+    "databricksManagedResourceGroupId": "[format('{0}/resourceGroups/{1}', subscription().id, variables('databricksManagedResourceGroupName'))]",
+    "dataLakeDnsSuffix": "[format('dfs.{0}', environment().suffixes.storage)]",
+    "dataLakeAbfsUri": "[format('abfss://{0}@{1}.{2}/', parameters('dataLakeFileSystem'), variables('storageAccountName'), variables('dataLakeDnsSuffix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2023-09-01",
+      "name": "[variables('logAnalyticsName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "retentionInDays": 30
+      }
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[variables('appInsightsName')]",
+      "location": "[parameters('location')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('storageAccountName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "allowBlobPublicAccess": false,
+        "minimumTlsVersion": "TLS1_2",
+        "supportsHttpsTrafficOnly": true,
+        "isHnsEnabled": true,
+        "accessTier": "Hot"
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('storageAccountName'), 'default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('storageAccountName'), 'default', parameters('dataLakeFileSystem'))]",
+      "properties": {
+        "publicAccess": "None"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('storageAccountName'), 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Databricks/workspaces",
+      "apiVersion": "2024-05-01",
+      "name": "[parameters('databricksWorkspaceName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "[parameters('databricksSku')]"
+      },
+      "properties": {
+        "managedResourceGroupId": "[variables('databricksManagedResourceGroupId')]",
+        "publicNetworkAccess": "Enabled",
+        "requiredNsgRules": "AllRules",
+        "defaultCatalog": {
+          "initialType": "HiveMetastore"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.EventHub/namespaces",
+      "apiVersion": "2024-01-01",
+      "name": "[variables('eventHubNamespaceName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard",
+        "tier": "Standard",
+        "capacity": 1
+      },
+      "properties": {
+        "isAutoInflateEnabled": true,
+        "maximumThroughputUnits": 4,
+        "minimumTlsVersion": "1.2"
+      }
+    },
+    {
+      "type": "Microsoft.EventHub/namespaces/eventhubs",
+      "apiVersion": "2024-01-01",
+      "name": "[format('{0}/{1}', variables('eventHubNamespaceName'), parameters('eventHubName'))]",
+      "properties": {
+        "messageRetentionInDays": 1,
+        "partitionCount": "[parameters('eventHubPartitions')]",
+        "status": "Active"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.EventHub/namespaces', variables('eventHubNamespaceName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('appServicePlanName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "tier": "Dynamic",
+        "name": "Y1"
+      },
+      "kind": "functionapp",
+      "properties": {
+        "reserved": true
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('functionAppName')]",
+      "location": "[parameters('location')]",
+      "kind": "functionapp,linux",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "linuxFxVersion": "Python|3.11",
+          "ftpsState": "Disabled",
+          "minTlsVersion": "1.2",
+          "appSettings": [
+            {
+              "name": "FUNCTIONS_EXTENSION_VERSION",
+              "value": "~4"
+            },
+            {
+              "name": "FUNCTIONS_WORKER_RUNTIME",
+              "value": "python"
+            },
+            {
+              "name": "WEBSITE_RUN_FROM_PACKAGE",
+              "value": "1"
+            },
+            {
+              "name": "AzureWebJobsStorage",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', variables('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value, environment().suffixes.storage)]"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
+            },
+            {
+              "name": "DATA_LAKE_ACCOUNT_URL",
+              "value": "[format('https://{0}.{1}', variables('storageAccountName'), variables('dataLakeDnsSuffix'))]"
+            },
+            {
+              "name": "DATA_LAKE_FILE_SYSTEM",
+              "value": "[parameters('dataLakeFileSystem')]"
+            },
+            {
+              "name": "EVENT_HUB_NAME",
+              "value": "[parameters('eventHubName')]"
+            },
+            {
+              "name": "EVENT_HUB_CONSUMER_GROUP",
+              "value": "$Default"
+            },
+            {
+              "name": "EventHubConnection__fullyQualifiedNamespace",
+              "value": "[format('{0}.servicebus.windows.net', variables('eventHubNamespaceName'))]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
+        "[resourceId('Microsoft.EventHub/namespaces', variables('eventHubNamespaceName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.EventHub/namespaces', variables('eventHubNamespaceName'))]",
+      "name": "[guid(resourceId('Microsoft.EventHub/namespaces', variables('eventHubNamespaceName')), resourceId('Microsoft.Web/sites', variables('functionAppName')), 'eventhub-receiver')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2023-12-01', 'full').identity.principalId]",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'a638d3c7-ab3a-418d-83e6-5f17a39d4fde')]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.EventHub/namespaces', variables('eventHubNamespaceName'))]",
+        "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), resourceId('Microsoft.Web/sites', variables('functionAppName')), 'storage-blob-contributor')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2023-12-01', 'full').identity.principalId]",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), parameters('databricksServicePrincipalObjectId'), 'databricks-storage-blob-contributor')]",
+      "properties": {
+        "principalId": "[parameters('databricksServicePrincipalObjectId')]",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "functionAppName": {
+      "type": "string",
+      "value": "[variables('functionAppName')]"
+    },
+    "eventHubNamespaceFqdn": {
+      "type": "string",
+      "value": "[format('{0}.servicebus.windows.net', variables('eventHubNamespaceName'))]"
+    },
+    "eventHubNameOut": {
+      "type": "string",
+      "value": "[parameters('eventHubName')]"
+    },
+    "dataLakeAccountUrl": {
+      "type": "string",
+      "value": "[format('https://{0}.{1}', variables('storageAccountName'), variables('dataLakeDnsSuffix'))]"
+    },
+    "dataLakeFileSystemOut": {
+      "type": "string",
+      "value": "[parameters('dataLakeFileSystem')]"
+    },
+    "functionPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2023-12-01', 'full').identity.principalId]"
+    },
+    "databricksWorkspaceNameOut": {
+      "type": "string",
+      "value": "[parameters('databricksWorkspaceName')]"
+    },
+    "databricksWorkspaceUrl": {
+      "type": "string",
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.Databricks/workspaces', parameters('databricksWorkspaceName')), '2024-05-01').workspaceUrl)]"
+    },
+    "databricksServicePrincipalClientIdOut": {
+      "type": "string",
+      "value": "[parameters('databricksServicePrincipalClientId')]"
+    },
+    "databricksServicePrincipalTenantIdOut": {
+      "type": "string",
+      "value": "[parameters('databricksServicePrincipalTenantId')]"
+    },
+    "dataLakeStorageAccountName": {
+      "type": "string",
+      "value": "[variables('storageAccountName')]"
+    },
+    "dataLakeAbfsUri": {
+      "type": "string",
+      "value": "[variables('dataLakeAbfsUri')]"
+    }
+  }
+}

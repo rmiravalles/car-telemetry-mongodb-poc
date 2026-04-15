@@ -16,6 +16,21 @@
     },
     "dataLakeFileSystem": {
       "value": "raw-telemetry"
+    },
+    "databricksWorkspaceName": {
+      "value": "myapp-dbw"
+    },
+    "databricksSku": {
+      "value": "standard"
+    },
+    "databricksServicePrincipalObjectId": {
+      "value": "00000000-0000-0000-0000-000000000000"
+    },
+    "databricksServicePrincipalClientId": {
+      "value": "00000000-0000-0000-0000-000000000000"
+    },
+    "databricksServicePrincipalTenantId": {
+      "value": "00000000-0000-0000-0000-000000000000"
     }
   }
 }

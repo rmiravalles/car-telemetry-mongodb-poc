@@ -8,6 +8,7 @@ This repository contains a proof of concept for real-time vehicle telemetry proc
 2. An Azure Function (Event Hub trigger) consumes events.
 3. The function writes each raw event to Azure Data Lake Gen2.
 4. The function writes the telemetry events to documents in MongoDB Atlas for low-latency queries.
+5. Azure Databricks reads the raw telemetry data from ADLS Gen2 for batch analytics and ML workloads.
 
 Authentication between Azure resources is identity-based using managed identities.
 
@@ -16,6 +17,7 @@ Authentication between Azure resources is identity-based using managed identitie
 - `.azure/deployment-plan.md`: implementation plan and scope.
 - `infra/main.bicep`: Azure infrastructure definition.
 - `infra/main.parameters.json`: parameter values for deployment.
+- `notebooks/databricks_telemetry_mount_and_query.ipynb`: sample Databricks notebook for mounting ADLS and exploring telemetry.
 - `src/function_app/function_app.py`: Event Hub triggered function.
 - `src/function_app/host.json`: Function host configuration.
 - `src/function_app/local.settings.sample.json`: local settings template.
@@ -33,9 +35,12 @@ Authentication between Azure resources is identity-based using managed identitie
 - Storage account with Data Lake Gen2 enabled
 - Data Lake file system (container)
 - Function App (Linux Consumption) with system-assigned managed identity
+- Azure Databricks workspace
 - Application Insights + Log Analytics
 - RBAC assignments for Function managed identity:
 	- `Azure Event Hubs Data Receiver` on Event Hubs namespace
+	- `Storage Blob Data Contributor` on storage account
+- RBAC assignment for Databricks mount service principal:
 	- `Storage Blob Data Contributor` on storage account
 
 ## Prerequisites
@@ -45,6 +50,8 @@ Authentication between Azure resources is identity-based using managed identitie
 - Azure Functions Core Tools (for local function runs)
 - Existing MongoDB Atlas cluster (**M10 or higher** — OIDC/Workload Identity Federation is not supported on M0, M2, or M5 shared tiers)
 - Atlas workload identity federation configured for Azure managed identity / Entra identity
+- Existing Microsoft Entra service principal for Azure Databricks ADLS mounts
+- Service principal client secret available for manual creation of a Databricks secret scope or secret entry
 
 ## 1) Deploy Azure Infrastructure
 
@@ -58,6 +65,14 @@ az deployment group create \
 	-p @infra/main.parameters.json
 ```
 
+Before running the deployment, replace these placeholders in `infra/main.parameters.json`:
+
+- `databricksWorkspaceName`: Azure Databricks workspace name
+- `databricksSku`: `standard`, `premium`, or `trial`
+- `databricksServicePrincipalObjectId`: object ID of the Entra service principal
+- `databricksServicePrincipalClientId`: application/client ID of the Entra service principal
+- `databricksServicePrincipalTenantId`: Entra tenant ID
+
 Capture outputs:
 
 ```bash
@@ -66,6 +81,8 @@ az deployment group show \
 	-n main \
 	--query properties.outputs
 ```
+
+The deployment now returns Databricks-specific outputs including the workspace URL, ADLS storage account name, file system name, and ABFS URI used in mount commands.
 
 ## 2) Configure MongoDB Atlas OIDC
 
@@ -110,7 +127,42 @@ az functionapp config appsettings set \
 	MONGODB_OIDC_SCOPE="https://management.azure.com/.default"
 ```
 
-## 3) Run Function Locally (Optional)
+## 3) Configure Azure Databricks Mount
+
+The Databricks workspace is provisioned by Bicep, but the ADLS mount itself must be created inside Databricks after deployment.
+
+Create a Databricks secret scope and store the service principal secret:
+
+```bash
+databricks secrets create-scope --scope telemetry
+databricks secrets put-secret --scope telemetry --key sp-client-secret
+```
+
+Then create the mount in a Databricks notebook using the deployment outputs:
+
+```python
+configs = {
+	"fs.azure.account.auth.type": "OAuth",
+	"fs.azure.account.oauth.provider.type": "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider",
+	"fs.azure.account.oauth2.client.id": "<databricksServicePrincipalClientIdOut>",
+	"fs.azure.account.oauth2.client.secret": dbutils.secrets.get(scope="telemetry", key="sp-client-secret"),
+	"fs.azure.account.oauth2.client.endpoint": "https://login.microsoftonline.com/<databricksServicePrincipalTenantIdOut>/oauth2/token"
+}
+
+dbutils.fs.mount(
+	source="abfss://<dataLakeFileSystemOut>@<dataLakeStorageAccountName>.dfs.core.windows.net/",
+	mount_point="/mnt/raw-telemetry",
+	extra_configs=configs
+)
+```
+
+Validate the mount:
+
+```python
+display(dbutils.fs.ls("/mnt/raw-telemetry"))
+```
+
+## 4) Run Function Locally (Optional)
 
 Install dependencies:
 
@@ -133,7 +185,7 @@ cd src/function_app
 func start
 ```
 
-## 4) Run Telemetry Simulator
+## 5) Run Telemetry Simulator
 
 The simulator authenticates with `DefaultAzureCredential`. For local execution, that means your `az login` identity.
 
@@ -157,7 +209,7 @@ python3 scripts/simulate_vehicle_data.py \
 	--duration 120
 ```
 
-## 5) Bootstrap MongoDB Indexes
+## 6) Bootstrap MongoDB Indexes
 
 This script is safe to run multiple times and ensures the collection has these indexes:
 
@@ -206,6 +258,7 @@ python3 scripts/bootstrap_mongodb_indexes.py \
 - ADLS writes use `DefaultAzureCredential` in code.
 - Atlas writes use `MONGODB-OIDC` callback with `DefaultAzureCredential` token acquisition.
 - Function runtime storage (`AzureWebJobsStorage`) in this PoC uses a connection string generated during provisioning.
+- Databricks mounts in this PoC use a Microsoft Entra service principal, not a managed identity, because the mount is configured inside the Databricks workspace runtime.
 
 ## Next Hardening Steps
 
