@@ -6,10 +6,10 @@
       "value": "westeurope"
     },
     "namePrefix": {
-      "value": "myapp"
+      "value": "car-telem"
     },
     "eventHubName": {
-      "value": "vehicle-telemetry"
+      "value": "car-telemetry"
     },
     "eventHubPartitions": {
       "value": 4
@@ -18,7 +18,7 @@
       "value": "raw-telemetry"
     },
     "databricksWorkspaceName": {
-      "value": "myapp-dbw"
+      "value": "car-telem-dbw"
     },
     "databricksSku": {
       "value": "standard"
